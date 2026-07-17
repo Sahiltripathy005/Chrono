@@ -20,6 +20,14 @@ pub struct TimerModel {
     pub timer_type: String, // "countdown" or "deadline"
     pub duration_secs: u64, // for countdown
     pub deadline_timestamp: u64, // for deadline (epoch ms)
+    #[serde(default)]
+    pub is_completed: bool,
+    #[serde(default)]
+    pub is_cancelled: bool,
+    #[serde(default = "default_true")]
+    pub alarm_enabled: bool,
+    #[serde(default)]
+    pub is_running: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,10 +54,16 @@ pub struct AppSettings {
     pub notification_auto_switch: bool,
     #[serde(default = "default_true")]
     pub auto_dock: bool,
+    #[serde(default = "default_automatic")]
+    pub overlay_timer_selection: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_automatic() -> String {
+    "automatic".to_string()
 }
 
 impl Default for AppSettings {
@@ -71,10 +85,15 @@ impl Default for AppSettings {
                 timer_type: "countdown".to_string(),
                 duration_secs: 300,
                 deadline_timestamp: 0,
+                is_completed: false,
+                is_cancelled: false,
+                alarm_enabled: true,
+                is_running: false,
             }],
             notification_sound: true,
             notification_auto_switch: false,
             auto_dock: true,
+            overlay_timer_selection: "automatic".to_string(),
         }
     }
 }
@@ -469,6 +488,10 @@ pub fn run() {
                     timer_type: "countdown".to_string(),
                     duration_secs: 300,
                     deadline_timestamp: 0,
+                    is_completed: false,
+                    is_cancelled: false,
+                    alarm_enabled: true,
+                    is_running: false,
                 });
             }
 
