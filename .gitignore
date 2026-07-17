@@ -49,3 +49,5 @@ yarn-error.log*
 pnpm-debug.log*
 # lerna monorepo tool debugging log
 lerna-debug.log*
+
+details.txt
