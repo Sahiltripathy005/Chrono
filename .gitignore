@@ -1,0 +1,51 @@
+# --- Node.js & Vite ---
+# local packages cache installed by pnpm
+node_modules/
+# production build outputs from Vite
+dist/
+# server-side rendering build outputs
+dist-ssr/
+# local environment overrides containing sensitive secrets
+*.local
+
+# --- Rust & Cargo ---
+# cargo binary build output directory
+/src-tauri/target/
+# generated schema files from tauri v2
+/src-tauri/gen/
+
+# --- Operating Systems ---
+# macOS folder metadata file
+.DS_Store
+# Windows explorer thumbnail cache
+Thumbs.db
+
+# --- Editors & IDEs ---
+# VS Code settings and workspace state
+.vscode/
+# JetBrains IDE settings and metadata
+.idea/
+# Visual Studio user options file
+*.suo
+# Node.js Tools for Visual Studio settings
+*.ntvs*
+# Node.js project file
+*.njsproj
+# Vim temporary swap file
+*.swp
+# Vim secondary swap file
+*.swo
+
+# --- Logs ---
+# standard application log file
+*.log
+# npm package manager debugging log
+npm-debug.log*
+# yarn package manager debugging log
+yarn-debug.log*
+# yarn package manager error log
+yarn-error.log*
+# pnpm package manager debugging log
+pnpm-debug.log*
+# lerna monorepo tool debugging log
+lerna-debug.log*
