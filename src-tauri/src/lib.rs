@@ -28,6 +28,10 @@ pub struct TimerModel {
     pub alarm_enabled: bool,
     #[serde(default)]
     pub is_running: bool,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(default)]
+    pub completion_timestamp: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -89,6 +93,8 @@ impl Default for AppSettings {
                 is_cancelled: false,
                 alarm_enabled: true,
                 is_running: false,
+                pinned: false,
+                completion_timestamp: 0,
             }],
             notification_sound: true,
             notification_auto_switch: false,
@@ -492,6 +498,8 @@ pub fn run() {
                     is_cancelled: false,
                     alarm_enabled: true,
                     is_running: false,
+                    pinned: false,
+                    completion_timestamp: 0,
                 });
             }
 

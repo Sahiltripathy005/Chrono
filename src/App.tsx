@@ -11,7 +11,8 @@ import {
   Trash2, 
   ChevronLeft,
   Edit2,
-  Check
+  Check,
+  Pin
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -60,6 +61,8 @@ interface TimerModel {
   is_cancelled: boolean;
   alarm_enabled: boolean;
   is_running: boolean;
+  pinned?: boolean;
+  completion_timestamp?: number;
 }
 
 interface AppSettings {
@@ -134,6 +137,7 @@ export default function App() {
   // Panel state: 'timer' | 'settings' | 'manager' | 'add' | 'edit'
   const [currentPanel, setCurrentPanelState] = useState<'timer' | 'settings' | 'manager' | 'add' | 'edit'>('timer');
   const [editingTimerId, setEditingTimerId] = useState<string | null>(null);
+  const [selectedCompletedIds, setSelectedCompletedIds] = useState<string[]>([]);
 
   const setCurrentPanel = (panel: 'timer' | 'settings' | 'manager' | 'add' | 'edit') => {
     setCurrentPanelState(panel);
@@ -305,7 +309,7 @@ export default function App() {
     setSettings(prev => {
       const updated = prev.timers.map(t => {
         if (t.id === id) {
-          return { ...t, is_completed: true, is_running: false };
+          return { ...t, is_completed: true, is_running: false, completion_timestamp: Date.now() };
         }
         return t;
       });
@@ -315,6 +319,48 @@ export default function App() {
         nextActiveId = determineAutomaticActiveId(updated, id);
       }
       
+      const newSettings = {
+        ...prev,
+        timers: updated,
+        active_timer_id: nextActiveId
+      };
+      invoke('save_settings_data', { settings: newSettings }).catch(console.error);
+      return newSettings;
+    });
+  };
+
+  const snoozeTimer = (id: string, seconds: number) => {
+    expiredTimersRef.current[id] = false;
+    setSettings(prev => {
+      const updated = prev.timers.map(t => {
+        if (t.id === id) {
+          if (t.type === 'countdown') {
+            countdownRemainingRef.current[id] = seconds;
+            return {
+              ...t,
+              duration_secs: seconds,
+              is_completed: false,
+              is_cancelled: false,
+              is_running: true,
+            };
+          } else {
+            return {
+              ...t,
+              deadline_timestamp: Date.now() + seconds * 1000,
+              is_completed: false,
+              is_cancelled: false,
+              is_running: true,
+            };
+          }
+        }
+        return t;
+      });
+
+      let nextActiveId = prev.active_timer_id;
+      if (prev.overlay_timer_selection === 'automatic') {
+        nextActiveId = determineAutomaticActiveId(updated, id);
+      }
+
       const newSettings = {
         ...prev,
         timers: updated,
@@ -665,7 +711,8 @@ export default function App() {
         is_completed: false,
         is_cancelled: false,
         alarm_enabled: formAlarmEnabled,
-        is_running: false,
+        is_running: true,
+        pinned: false,
       };
       countdownRemainingRef.current[id] = total;
     } else {
@@ -688,7 +735,8 @@ export default function App() {
         is_completed: false,
         is_cancelled: false,
         alarm_enabled: formAlarmEnabled,
-        is_running: false,
+        is_running: true,
+        pinned: false,
       };
       expiredTimersRef.current[id] = false;
     }
@@ -700,8 +748,10 @@ export default function App() {
         newTimer.is_running = existing ? existing.is_running : false;
         newTimer.is_completed = existing ? existing.is_completed : false;
         newTimer.is_cancelled = existing ? existing.is_cancelled : false;
+        newTimer.pinned = existing ? existing.pinned : false;
         updatedTimers = updatedTimers.map(t => t.id === editingTimerId ? newTimer : t);
       } else {
+        newTimer.is_running = true;
         updatedTimers.push(newTimer);
       }
 
@@ -763,6 +813,22 @@ export default function App() {
     setSelectedAmPm(ampm);
   };
 
+  // Pin / Unpin a timer
+  const handleTogglePinTimer = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSettings(prev => {
+      const updated = prev.timers.map(t => {
+        if (t.id === id) {
+          return { ...t, pinned: !t.pinned };
+        }
+        return t;
+      });
+      const newSettings = { ...prev, timers: updated };
+      invoke('save_settings_data', { settings: newSettings }).catch(console.error);
+      return newSettings;
+    });
+  };
+
   // Delete a timer
   const handleDeleteTimer = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -787,6 +853,80 @@ export default function App() {
       invoke('save_settings_data', { settings: newSettings }).catch(console.error);
       return newSettings;
     });
+  };
+
+  // Clear all completed timers
+  const handleClearCompleted = () => {
+    setSettings(prev => {
+      const completed = prev.timers.filter(t => t.is_completed);
+      if (completed.length === 0) return prev;
+      
+      let updated = prev.timers.filter(t => !t.is_completed);
+      if (updated.length === 0) {
+        updated = [{
+          id: "default",
+          label: "Countdown",
+          type: "countdown",
+          duration_secs: 300,
+          deadline_timestamp: 0,
+          is_completed: false,
+          is_cancelled: false,
+          alarm_enabled: true,
+          is_running: false,
+          pinned: false,
+        }];
+      }
+      
+      let activeId = prev.active_timer_id;
+      if (!updated.some(t => t.id === activeId)) {
+        if (prev.overlay_timer_selection === 'automatic') {
+          activeId = determineAutomaticActiveId(updated, activeId);
+        } else {
+          activeId = updated[0].id;
+        }
+      }
+      
+      const newSettings = { ...prev, timers: updated, active_timer_id: activeId };
+      invoke('save_settings_data', { settings: newSettings }).catch(console.error);
+      return newSettings;
+    });
+    setSelectedCompletedIds([]);
+  };
+
+  // Delete selected completed timers
+  const handleDeleteSelectedCompleted = () => {
+    if (selectedCompletedIds.length === 0) return;
+    setSettings(prev => {
+      let updated = prev.timers.filter(t => !selectedCompletedIds.includes(t.id));
+      if (updated.length === 0) {
+        updated = [{
+          id: "default",
+          label: "Countdown",
+          type: "countdown",
+          duration_secs: 300,
+          deadline_timestamp: 0,
+          is_completed: false,
+          is_cancelled: false,
+          alarm_enabled: true,
+          is_running: false,
+          pinned: false,
+        }];
+      }
+      
+      let activeId = prev.active_timer_id;
+      if (!updated.some(t => t.id === activeId)) {
+        if (prev.overlay_timer_selection === 'automatic') {
+          activeId = determineAutomaticActiveId(updated, activeId);
+        } else {
+          activeId = updated[0].id;
+        }
+      }
+      
+      const newSettings = { ...prev, timers: updated, active_timer_id: activeId };
+      invoke('save_settings_data', { settings: newSettings }).catch(console.error);
+      return newSettings;
+    });
+    setSelectedCompletedIds([]);
   };
 
   const handleToggleTimerInList = (id: string) => {
@@ -962,6 +1102,11 @@ export default function App() {
   const formattedText = isOverdue ? `+${formatted}` : formatted;
   const placeholderDigits = formattedText.replace(/\d/g, '8');
 
+  const isDialogOpen = currentPanel !== 'timer';
+  const renderedOpacity = isDialogOpen
+    ? Math.max(0.9, settings.opacity)
+    : settings.opacity;
+
   // Hero Clock Sizing Logic: Scales cleanly but caps securely
   const getTimerFontSize = () => {
     const usableWidth = windowSize.width - 32;
@@ -1030,7 +1175,7 @@ export default function App() {
       onMouseUp={handleMouseUp}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      style={{ opacity: settings.opacity }}
+      style={{ opacity: renderedOpacity }}
     >
       {/* Expiration visual flash overlay */}
       <div 
@@ -1155,17 +1300,46 @@ export default function App() {
               </div>
             </div>
 
-            {/* Clear, elegant dismissal button when expired */}
+            {/* Clear, elegant dismissal and snooze buttons when expired */}
             {isActiveTimerExpired && activeTimer && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  acknowledgeTimer(activeTimer.id);
-                }}
-                className="mt-3 px-5 py-1.5 bg-rose-600/90 hover:bg-rose-500 text-white font-extrabold tracking-widest text-[9.5px] rounded-lg border border-rose-500/20 hover:scale-[1.02] active:scale-[0.98] transition-all interactive-control shadow-xl focus:outline-none"
-              >
-                DISMISS ALARM
-              </button>
+              <div className="mt-2.5 flex items-center gap-1.5 justify-center z-10">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    acknowledgeTimer(activeTimer.id);
+                  }}
+                  className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-500 text-white font-extrabold tracking-widest text-[8.5px] rounded-md border border-rose-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] interactive-control shadow-lg focus:outline-none"
+                >
+                  DISMISS
+                </button>
+                <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded p-0.5">
+                  <span className="text-[7.5px] font-bold text-zinc-500 px-1.5 tracking-wider uppercase">SNOOZE:</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 60); }}
+                    className="px-1.5 py-0.5 text-zinc-300 hover:text-white text-[8px] font-bold transition-all hover:bg-zinc-800 rounded interactive-control"
+                  >
+                    1m
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 300); }}
+                    className="px-1.5 py-0.5 text-zinc-300 hover:text-white text-[8px] font-bold transition-all hover:bg-zinc-800 rounded interactive-control"
+                  >
+                    5m
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 600); }}
+                    className="px-1.5 py-0.5 text-zinc-300 hover:text-white text-[8px] font-bold transition-all hover:bg-zinc-800 rounded interactive-control"
+                  >
+                    10m
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 1800); }}
+                    className="px-1.5 py-0.5 text-zinc-300 hover:text-white text-[8px] font-bold transition-all hover:bg-zinc-800 rounded interactive-control"
+                  >
+                    30m
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* Hover Actions (Only visible in Customize Mode) */}
@@ -1326,22 +1500,8 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-[1.3fr_1fr] gap-6 flex-1 min-h-0">
-              <div className="overflow-y-auto flex flex-col gap-2 pr-1 scrollbar-thin">
-                {settings.timers.map(t => {
-                  const isActive = t.id === settings.active_timer_id;
-                  let display = '';
-                  let isOverdueTimer = false;
-                  
-                  if (t.type === 'countdown') {
-                    const rem = countdownRemainingRef.current[t.id] ?? t.duration_secs;
-                    display = formatTime(rem, settings.show_seconds);
-                    isOverdueTimer = rem <= 0 && !t.is_completed && !t.is_cancelled;
-                  } else {
-                    const diff = t.deadline_timestamp - Date.now();
-                    isOverdueTimer = diff < 0 && !t.is_completed && !t.is_cancelled;
-                    display = (diff < 0 ? '+' : '') + formatTime(Math.floor(Math.abs(diff) / 1000), settings.show_seconds);
-                  }
-
+              <div className="overflow-y-auto flex flex-col gap-4 pr-1 scrollbar-thin">
+                {(() => {
                   const getTimerStatusText = (timer: TimerModel) => {
                     if (timer.is_completed) return { text: 'Completed', color: 'text-emerald-450 font-bold' };
                     if (timer.is_cancelled) return { text: 'Cancelled', color: 'text-zinc-500 font-bold' };
@@ -1358,96 +1518,200 @@ export default function App() {
                     }
                   };
 
-                  const statusInfo = getTimerStatusText(t);
+                  const renderTimerItem = (t: TimerModel) => {
+                    const isActive = t.id === settings.active_timer_id;
+                    let display = '';
+                    let isOverdueTimer = false;
+                    
+                    if (t.type === 'countdown') {
+                      const rem = countdownRemainingRef.current[t.id] ?? t.duration_secs;
+                      display = formatTime(rem, settings.show_seconds);
+                      isOverdueTimer = rem <= 0 && !t.is_completed && !t.is_cancelled;
+                    } else {
+                      const diff = t.deadline_timestamp - Date.now();
+                      isOverdueTimer = diff < 0 && !t.is_completed && !t.is_cancelled;
+                      display = (diff < 0 ? '+' : '') + formatTime(Math.floor(Math.abs(diff) / 1000), settings.show_seconds);
+                    }
+
+                    const statusInfo = getTimerStatusText(t);
+
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => {
+                          if (settings.overlay_timer_selection === 'manual') {
+                            setSettings(prev => {
+                              const updated = { ...prev, active_timer_id: t.id };
+                              invoke('save_settings_data', { settings: updated }).catch(console.error);
+                              return updated;
+                            });
+                          }
+                        }}
+                        className={`flex items-center justify-between p-2.5 rounded-lg border transition-all focus-visible:ring-2 focus-visible:ring-zinc-450 focus:outline-none ${settings.overlay_timer_selection === 'manual' ? 'cursor-pointer' : 'cursor-default'} ${isActive ? 'bg-white/10 border-zinc-300' : 'bg-zinc-900/40 border-zinc-800 hover:bg-zinc-900/60 hover:border-zinc-700'}`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
+                          {t.is_completed && (
+                            <input
+                              type="checkbox"
+                              checked={selectedCompletedIds.includes(t.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                setSelectedCompletedIds(prev => 
+                                  prev.includes(t.id) 
+                                    ? prev.filter(id => id !== t.id) 
+                                    : [...prev, t.id]
+                                );
+                              }}
+                              className="rounded border-zinc-800 bg-zinc-950 text-zinc-450 focus:ring-0 focus:ring-offset-0 focus:outline-none interactive-control cursor-pointer w-3.5 h-3.5"
+                            />
+                          )}
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className={`font-semibold truncate leading-tight text-xs ${isActive ? 'text-white' : 'text-zinc-200'}`}>{t.label}</span>
+                              {isActive && (
+                                <span className="bg-white/20 text-white border border-white/20 text-[7px] font-extrabold tracking-widest uppercase px-1 rounded shrink-0">
+                                  ACTIVE
+                                </span>
+                              )}
+                              {t.is_completed && (
+                                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 text-[7px] font-extrabold tracking-widest uppercase px-1 rounded shrink-0">
+                                  DONE
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-1 text-[8.5px] font-semibold uppercase tracking-wider">
+                              <span className={isActive ? 'text-zinc-300' : 'text-zinc-400'}>{t.type}</span>
+                              <span className="text-zinc-700">•</span>
+                              <span className={statusInfo.color}>{statusInfo.text}</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <span className={`font-mono text-xs font-bold ${isOverdueTimer ? 'text-rose-450' : (isActive ? 'text-white' : 'text-zinc-300')}`}>
+                            {display}
+                          </span>
+                          
+                          <div className="flex items-center gap-1">
+                            {t.type === 'countdown' && !t.is_completed && !t.is_cancelled && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleTimerInList(t.id);
+                                }}
+                                className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus:outline-none"
+                                title={t.is_running ? "Pause" : "Start"}
+                              >
+                                {t.is_running ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                              </button>
+                            )}
+                            
+                            {getRemainingSecondsForTimer(t) <= 0 && !t.is_completed && !t.is_cancelled && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  acknowledgeTimer(t.id);
+                                }}
+                                className="text-rose-400 hover:text-emerald-450 p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus:outline-none"
+                                title="Acknowledge Timer"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {!t.is_completed && (
+                              <button
+                                onClick={(e) => handleTogglePinTimer(t.id, e)}
+                                className={`p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus:outline-none ${t.pinned ? 'text-amber-500' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                title={t.pinned ? "Unpin Timer" : "Pin Timer"}
+                              >
+                                <Pin className="w-3 h-3 fill-current opacity-80" style={{ transform: t.pinned ? 'none' : 'rotate(45deg)' }} />
+                              </button>
+                            )}
+
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleOpenEditPanel(t.id); }}
+                              className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus-visible:ring-1 focus-visible:ring-zinc-450 focus:outline-none"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                            {settings.timers.length > 1 && (
+                              <button
+                                onClick={(e) => handleDeleteTimer(t.id, e)}
+                                className="text-zinc-400 hover:text-rose-400 p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus-visible:ring-1 focus-visible:ring-rose-500 focus:outline-none"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const pinnedList = settings.timers.filter(t => t.pinned && !t.is_completed);
+                  const upcomingList = settings.timers.filter(t => !t.pinned && !t.is_completed);
+                  const completedList = settings.timers.filter(t => t.is_completed);
+
+                  pinnedList.sort((a, b) => getRemainingSecondsForTimer(a) - getRemainingSecondsForTimer(b));
+                  upcomingList.sort((a, b) => getRemainingSecondsForTimer(a) - getRemainingSecondsForTimer(b));
+                  completedList.sort((a, b) => (b.completion_timestamp || 0) - (a.completion_timestamp || 0));
 
                   return (
-                    <div
-                      key={t.id}
-                      onClick={() => {
-                        if (settings.overlay_timer_selection === 'manual') {
-                          setSettings(prev => {
-                            const updated = { ...prev, active_timer_id: t.id };
-                            invoke('save_settings_data', { settings: updated }).catch(console.error);
-                            return updated;
-                          });
-                        }
-                      }}
-                      className={`flex items-center justify-between p-3 rounded-lg border transition-all focus-visible:ring-2 focus-visible:ring-zinc-450 focus:outline-none ${settings.overlay_timer_selection === 'manual' ? 'cursor-pointer' : 'cursor-default'} ${isActive ? 'bg-white/10 border-zinc-300' : 'bg-zinc-900/40 border-zinc-800 hover:bg-zinc-900/60 hover:border-zinc-700'}`}
-                    >
-                      <div className="flex flex-col min-w-0 flex-1 pr-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`font-semibold truncate leading-tight text-xs ${isActive ? 'text-white' : 'text-zinc-200'}`}>{t.label}</span>
-                          {isActive && (
-                            <span className="bg-white/20 text-white border border-white/20 text-[7px] font-extrabold tracking-widest uppercase px-1 rounded shrink-0">
-                              ACTIVE
-                            </span>
-                          )}
-                          {t.is_completed && (
-                            <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 text-[7px] font-extrabold tracking-widest uppercase px-1 rounded shrink-0">
-                              DONE
-                            </span>
-                          )}
+                    <>
+                      {/* Pinned Section */}
+                      {pinnedList.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-1.5 text-[8.5px] font-black text-zinc-500 tracking-widest uppercase pb-1 border-b border-zinc-900/60">
+                            <Pin className="w-2.5 h-2.5 fill-current text-amber-500/85" />
+                            <span>Pinned</span>
+                          </div>
+                          {pinnedList.map(t => renderTimerItem(t))}
                         </div>
-                        <div className="flex items-center gap-2 mt-1 text-[8.5px] font-semibold uppercase tracking-wider">
-                          <span className={isActive ? 'text-zinc-300' : 'text-zinc-400'}>{t.type}</span>
-                          <span className="text-zinc-700">•</span>
-                          <span className={statusInfo.color}>{statusInfo.text}</span>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className={`font-mono text-xs font-bold ${isOverdueTimer ? 'text-rose-450' : (isActive ? 'text-white' : 'text-zinc-300')}`}>
-                          {display}
-                        </span>
-                        
-                        <div className="flex items-center gap-1.5">
-                          {t.type === 'countdown' && !t.is_completed && !t.is_cancelled && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleToggleTimerInList(t.id);
-                              }}
-                              className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus:outline-none"
-                              title={t.is_running ? "Pause" : "Start"}
-                            >
-                              {t.is_running ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                            </button>
-                          )}
-                          
-                          {getRemainingSecondsForTimer(t) <= 0 && !t.is_completed && !t.is_cancelled && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                acknowledgeTimer(t.id);
-                              }}
-                              className="text-rose-400 hover:text-emerald-450 p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus:outline-none"
-                              title="Acknowledge Timer"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                      )}
 
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleOpenEditPanel(t.id); }}
-                            className="text-zinc-400 hover:text-white p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus-visible:ring-1 focus-visible:ring-zinc-450 focus:outline-none"
-                            title="Edit"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </button>
-                          {settings.timers.length > 1 && (
-                            <button
-                              onClick={(e) => handleDeleteTimer(t.id, e)}
-                              className="text-zinc-400 hover:text-rose-400 p-1 rounded hover:bg-zinc-800 transition-all interactive-control focus-visible:ring-1 focus-visible:ring-rose-500 focus:outline-none"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          )}
+                      {/* Upcoming Section */}
+                      {upcomingList.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-1.5 text-[8.5px] font-black text-zinc-500 tracking-widest uppercase pb-1 border-b border-zinc-900/60">
+                            <span>Upcoming</span>
+                          </div>
+                          {upcomingList.map(t => renderTimerItem(t))}
                         </div>
-                      </div>
-                    </div>
+                      )}
+
+                      {/* Completed Section */}
+                      {completedList.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center justify-between pb-1 border-b border-zinc-900/60">
+                            <div className="flex items-center gap-1.5 text-[8.5px] font-black text-zinc-500 tracking-widest uppercase">
+                              <span>Completed</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {selectedCompletedIds.length > 0 && (
+                                <button
+                                  onClick={handleDeleteSelectedCompleted}
+                                  className="text-rose-450 hover:text-rose-300 font-extrabold text-[8px] uppercase tracking-wider transition-colors interactive-control"
+                                >
+                                  Delete Selected ({selectedCompletedIds.length})
+                                </button>
+                              )}
+                              <button
+                                onClick={handleClearCompleted}
+                                className="text-zinc-500 hover:text-zinc-300 font-extrabold text-[8px] uppercase tracking-wider transition-colors interactive-control"
+                              >
+                                Clear Completed
+                              </button>
+                            </div>
+                          </div>
+                          {completedList.map(t => renderTimerItem(t))}
+                        </div>
+                      )}
+                    </>
                   );
-                })}
+                })()}
               </div>
 
               <div className="flex flex-col justify-between border-l border-zinc-800 pl-6 text-zinc-300">
