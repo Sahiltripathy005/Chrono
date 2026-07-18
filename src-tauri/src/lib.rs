@@ -73,6 +73,8 @@ pub struct AppSettings {
     pub workspaces: Vec<Workspace>,
     #[serde(default)]
     pub active_workspace_id: String,
+    #[serde(default)]
+    pub skip_next_startup: bool,
 }
 
 fn default_true() -> bool {
@@ -132,6 +134,7 @@ impl Default for AppSettings {
                 active_timer_id: "default".to_string(),
             }],
             active_workspace_id: "default_workspace".to_string(),
+            skip_next_startup: false,
         }
     }
 }
@@ -529,6 +532,28 @@ fn save_settings_data(
     Ok(())
 }
 
+#[tauri::command]
+fn disable_startup_next_boot(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().unwrap();
+    if settings.launch_at_startup {
+        settings.skip_next_startup = true;
+        #[cfg(target_os = "windows")]
+        {
+            let _ = set_autostart(&app_handle, false);
+        }
+        let settings_clone = settings.clone();
+        let app_handle_clone = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = save_settings(&app_handle_clone, &settings_clone);
+        });
+        let _ = app_handle.emit("settings-updated", ());
+    }
+    Ok(settings.clone())
+}
+
 #[cfg(target_os = "windows")]
 #[link(name = "user32")]
 extern "system" {
@@ -670,7 +695,13 @@ pub fn run() {
             // Sync autostart preference on Windows
             #[cfg(target_os = "windows")]
             {
-                let _ = set_autostart(&app_handle, settings.launch_at_startup);
+                if settings.skip_next_startup {
+                    settings.skip_next_startup = false;
+                    let _ = set_autostart(&app_handle, settings.launch_at_startup);
+                    let _ = save_settings(&app_handle, &settings);
+                } else {
+                    let _ = set_autostart(&app_handle, settings.launch_at_startup);
+                }
             }
 
             // Determine if the position is on any active monitor
@@ -940,7 +971,8 @@ pub fn run() {
             animate_window,
             get_monitor_work_area,
             set_config_mode,
-            get_cursor_position
+            get_cursor_position,
+            disable_startup_next_boot
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
