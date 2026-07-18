@@ -117,6 +117,26 @@ export function useTimerApp() {
   const [formAlarmEnabled, setFormAlarmEnabled] = useState(true);
   const [selectedManagerTimerId, setSelectedManagerTimerId] = useState<string | null>(null);
 
+  // Sync state size on window resize and font loaded events
+  useEffect(() => {
+    const handleResize = () => {
+      requestAnimationFrame(() => {
+        setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+      });
+    };
+
+    window.addEventListener('resize', handleResize);
+    handleResize();
+
+    if (document.fonts) {
+      document.fonts.ready.then(handleResize);
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
   // Refs for tracking background logic
   const countdownRemainingRef = useRef<Record<string, number>>({});
   const expiredTimersRef = useRef<Record<string, boolean>>({});
@@ -474,17 +494,40 @@ export function useTimerApp() {
   };
 
   // Transition helper that invokes enter/exit configuration mode
-  const changePanel = async (panel: 'timer' | 'settings' | 'manager' | 'add' | 'edit') => {
-    if (panel === 'timer') {
-      await invoke('exit_config_mode');
-    } else {
-      if (currentPanel === 'timer') {
-        // Fixed target sizing for desktop utility dialogs (560 x 400)
-        await invoke('enter_config_mode', { width: 560, height: 400 });
-      }
-    }
+  const changePanel = (panel: 'timer' | 'settings' | 'manager' | 'add' | 'edit') => {
     setCurrentPanel(panel);
   };
+
+  // Unified native window size manager for panel transitions
+  // Ensures React finishes rendering and layout settles before the native Tauri window is updated.
+  useEffect(() => {
+    let active = true;
+
+    const syncNativeWindow = async () => {
+      // Defer execution using requestAnimationFrame to let layout stabilize completely
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      if (!active) return;
+
+      try {
+        if (currentPanel === 'timer') {
+          await invoke('exit_config_mode');
+        } else if (currentPanel === 'add' || currentPanel === 'edit') {
+          await invoke('enter_config_mode', { width: 700, height: 420 });
+        } else {
+          // manager or settings: increased default height by 90px (from 400px to 490px)
+          await invoke('enter_config_mode', { width: 560, height: 490 });
+        }
+      } catch (err) {
+        console.error("Native window synchronization failed:", err);
+      }
+    };
+
+    syncNativeWindow();
+
+    return () => {
+      active = false;
+    };
+  }, [currentPanel]);
 
   // unified ticking loop for all countdowns and deadline timers
   useEffect(() => {
@@ -1121,7 +1164,7 @@ export function useTimerApp() {
     const usableHeight = windowSize.height - 48;
     
     const charCount = formattedText.length;
-    const charWidthRatio = 0.58; 
+    const charWidthRatio = 0.61; 
     const estimatedWidth = charCount * charWidthRatio;
     
     const widthLimit = usableWidth / estimatedWidth;

@@ -188,8 +188,9 @@ export default function App() {
         )}
 
         {/* 1. FIXED-SIZE SETTINGS PANEL */}
-        {currentPanel === 'settings' && isCustomizeMode && (
+        {isCustomizeMode && (
           <SettingsPanel
+            isActive={currentPanel === 'settings'}
             settings={settings}
             handleToggleSeconds={handleToggleSeconds}
             handleToggleAlwaysOnTop={handleToggleAlwaysOnTop}
@@ -203,8 +204,9 @@ export default function App() {
         )}
 
         {/* 2. FIXED-SIZE ALARM CENTER / TIMER MANAGER */}
-        {currentPanel === 'manager' && isCustomizeMode && (
+        {isCustomizeMode && (
           <ManagerPanel
+            isActive={currentPanel === 'manager'}
             settings={settings}
             activeTimer={activeTimer}
             selectedManagerTimerId={selectedManagerTimerId}
@@ -231,10 +233,10 @@ export default function App() {
         )}
 
         {/* 3. FIXED-SIZE ADD / EDIT TIMERS (DEADLINE EDITOR) */}
-        {(currentPanel === 'add' || currentPanel === 'edit') && isCustomizeMode && (
+        {isCustomizeMode && (
           <FormPanel
-            currentPanel={currentPanel}
-            isCustomizeMode={isCustomizeMode}
+            isActive={currentPanel === 'add' || currentPanel === 'edit'}
+            currentPanel={currentPanel === 'add' ? 'add' : 'edit'}
             editingTimerId={editingTimerId}
             setEditingTimerId={setEditingTimerId}
             formType={formType}

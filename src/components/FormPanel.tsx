@@ -1,8 +1,8 @@
 import React from 'react';
 
 interface FormPanelProps {
+  isActive: boolean;
   currentPanel: 'add' | 'edit';
-  isCustomizeMode: boolean;
   editingTimerId: string | null;
   setEditingTimerId: (id: string | null) => void;
   formType: 'countdown' | 'deadline';
@@ -35,8 +35,8 @@ interface FormPanelProps {
 }
 
 export const FormPanel: React.FC<FormPanelProps> = ({
+  isActive,
   currentPanel,
-  isCustomizeMode,
   editingTimerId,
   setEditingTimerId,
   formType,
@@ -68,16 +68,37 @@ export const FormPanel: React.FC<FormPanelProps> = ({
   changePanel,
 }) => {
   const getDaysInMonth = (y: number, m: number) => {
-    const d = new Date(y, m, 1);
+    const firstDay = new Date(y, m, 1);
+    const startDayOfWeek = firstDay.getDay(); // 0 is Sunday, 6 is Saturday
     const result = [];
-    const firstIndex = d.getDay();
-    for (let i = 0; i < firstIndex; i++) {
-      result.push(null);
+
+    // 1. Previous month padding days
+    const prevMonthLastDate = new Date(y, m, 0).getDate();
+    for (let i = startDayOfWeek - 1; i >= 0; i--) {
+      result.push({
+        date: new Date(y, m - 1, prevMonthLastDate - i),
+        isCurrentMonth: false
+      });
     }
-    while (d.getMonth() === m) {
-      result.push(new Date(d));
-      d.setDate(d.getDate() + 1);
+
+    // 2. Current month days
+    const currentMonthDaysCount = new Date(y, m + 1, 0).getDate();
+    for (let i = 1; i <= currentMonthDaysCount; i++) {
+      result.push({
+        date: new Date(y, m, i),
+        isCurrentMonth: true
+      });
     }
+
+    // 3. Next month padding days to complete a 6-row grid (42 days)
+    const remainingDays = 42 - result.length;
+    for (let i = 1; i <= remainingDays; i++) {
+      result.push({
+        date: new Date(y, m + 1, i),
+        isCurrentMonth: false
+      });
+    }
+
     return result;
   };
 
@@ -149,29 +170,31 @@ export const FormPanel: React.FC<FormPanelProps> = ({
     }
   };
 
-  if (!(currentPanel === 'add' || currentPanel === 'edit') || !isCustomizeMode) return null;
-
   return (
-    <div className="absolute inset-0 bg-zinc-950/90 backdrop-blur-md flex flex-col p-6 z-10 text-xs">
+    <div className={`panel-transition absolute inset-0 bg-zinc-950/90 backdrop-blur-md flex flex-col p-6 z-10 text-xs ${
+      isActive ? 'panel-visible' : 'panel-hidden'
+    }`}>
       <div className="pb-2.5 border-b border-zinc-800/80 mb-4 shrink-0">
         <span className="text-[10px] font-bold text-zinc-300 tracking-widest uppercase">
           {currentPanel === 'add' ? 'ADD NEW TIMER' : 'EDIT TIMER'}
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-8 flex-1 min-h-0 items-start">
+      <div className="grid grid-cols-[1fr_1.3fr] gap-6 flex-1 min-h-0 items-start">
         <div className="flex flex-col h-full border-r border-zinc-800 pr-6 justify-center">
           <div className="flex border border-zinc-700 rounded-lg p-0.5 bg-zinc-900/50 mb-3 shrink-0">
             <button
               onClick={() => setFormType('countdown')}
-              className={`flex-1 text-[9px] font-extrabold py-1.5 rounded transition-all interactive-control focus:outline-none ${formType === 'countdown' ? 'bg-white text-zinc-950 shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+              className={`relative flex-1 text-[9px] font-extrabold py-2 rounded-md transition-all interactive-control focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-450 ${formType === 'countdown' ? 'bg-white text-zinc-950 shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
+              <span className="absolute -inset-1.5 cursor-pointer" />
               COUNTDOWN
             </button>
             <button
               onClick={() => setFormType('deadline')}
-              className={`flex-1 text-[9px] font-extrabold py-1.5 rounded transition-all interactive-control focus:outline-none ${formType === 'deadline' ? 'bg-white text-zinc-950 shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
+              className={`relative flex-1 text-[9px] font-extrabold py-2 rounded-md transition-all interactive-control focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-450 ${formType === 'deadline' ? 'bg-white text-zinc-950 shadow' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
+              <span className="absolute -inset-1.5 cursor-pointer" />
               DEADLINE
             </button>
           </div>
@@ -186,8 +209,9 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                       return prev - 1;
                     });
                   }}
-                  className="px-2.5 py-1 bg-zinc-900 border border-zinc-750 hover:border-zinc-550 rounded-md interactive-control text-zinc-200 hover:text-white transition-all focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"
+                  className="relative px-3 py-1.5 bg-zinc-900 border border-zinc-750 hover:border-zinc-550 rounded-lg interactive-control text-zinc-200 hover:text-white transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-450"
                 >
+                  <span className="absolute -inset-2 cursor-pointer" />
                   &lt;
                 </button>
                 <span className="uppercase text-zinc-100 font-extrabold tracking-wider">
@@ -200,8 +224,9 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                       return prev + 1;
                     });
                   }}
-                  className="px-2.5 py-1 bg-zinc-900 border border-zinc-750 hover:border-zinc-550 rounded-md interactive-control text-zinc-200 hover:text-white transition-all focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"
+                  className="relative px-3 py-1.5 bg-zinc-900 border border-zinc-750 hover:border-zinc-550 rounded-lg interactive-control text-zinc-200 hover:text-white transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-450"
                 >
+                  <span className="absolute -inset-2 cursor-pointer" />
                   &gt;
                 </button>
               </div>
@@ -212,30 +237,38 @@ export const FormPanel: React.FC<FormPanelProps> = ({
 
               <div className="grid grid-cols-7 gap-1">
                 {calendarDays.map((day, idx) => {
-                  if (!day) return <div key={idx} className="h-6 w-6" />;
-                  
                   const isSel = selectedDate && 
-                    selectedDate.getDate() === day.getDate() && 
-                    selectedDate.getMonth() === day.getMonth() && 
-                    selectedDate.getFullYear() === day.getFullYear();
+                    selectedDate.getDate() === day.date.getDate() && 
+                    selectedDate.getMonth() === day.date.getMonth() && 
+                    selectedDate.getFullYear() === day.date.getFullYear();
 
-                  const isTdy = new Date().getDate() === day.getDate() && 
-                    new Date().getMonth() === day.getMonth() && 
-                    new Date().getFullYear() === day.getFullYear();
+                  const isTdy = new Date().getDate() === day.date.getDate() && 
+                    new Date().getMonth() === day.date.getMonth() && 
+                    new Date().getFullYear() === day.date.getFullYear();
+
+                  const todayMidnight = new Date();
+                  todayMidnight.setHours(0, 0, 0, 0);
+                  const isPast = day.date < todayMidnight;
 
                   return (
                     <button
                       key={idx}
-                      onClick={() => setSelectedDate(day)}
-                      className={`h-6 w-full rounded flex items-center justify-center text-[10px] font-bold interactive-control transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450 ${
-                        isSel 
-                          ? 'bg-white text-zinc-950 shadow' 
-                          : isTdy 
-                            ? 'border border-zinc-400 text-zinc-50 font-extrabold bg-zinc-900/50' 
-                            : 'text-zinc-300 hover:bg-zinc-800 hover:text-white border border-transparent'
+                      disabled={isPast}
+                      onClick={() => setSelectedDate(day.date)}
+                      className={`relative h-7 w-full rounded-md flex items-center justify-center text-[10px] font-bold interactive-control transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-455 ${
+                        isPast 
+                          ? 'text-zinc-700 opacity-25 cursor-not-allowed pointer-events-none'
+                          : isSel 
+                            ? 'bg-white text-zinc-950 shadow border border-transparent' 
+                            : isTdy 
+                              ? 'border border-zinc-400 text-zinc-50 font-extrabold bg-zinc-900/50' 
+                              : day.isCurrentMonth
+                                ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white border border-transparent'
+                                : 'text-zinc-650 hover:bg-zinc-850 hover:text-zinc-350 border border-transparent'
                       }`}
                     >
-                      {day.getDate()}
+                      <span className="absolute -inset-1.5 cursor-pointer" />
+                      {day.date.getDate()}
                     </button>
                   );
                 })}
@@ -253,7 +286,7 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                     value={formHours}
                     onKeyDown={handleCountdownHoursKeyDown}
                     onChange={(e) => setFormHours(Math.max(0, Math.min(23, parseInt(e.target.value, 10) || 0)))}
-                    className="w-12 h-9 text-center bg-zinc-900 border border-zinc-750 focus:border-zinc-450 focus:bg-zinc-850 hover:border-zinc-600 text-white rounded-lg p-1 outline-none font-mono text-sm font-bold selection:bg-white/20 interactive-control transition-all"
+                    className="w-12 h-9 text-center bg-zinc-900 border border-zinc-750 focus:border-zinc-450 focus:bg-zinc-850 hover:border-zinc-600 text-white rounded-lg p-1 outline-none font-mono text-sm font-bold selection:bg-white/20 interactive-control transition-all focus-visible:ring-2 focus-visible:ring-white"
                   />
                   <span className="text-[8px] text-zinc-400 font-bold mt-1 tracking-wider uppercase">HRS</span>
                 </div>
@@ -266,7 +299,7 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                     value={formMinutes}
                     onKeyDown={handleCountdownMinutesKeyDown}
                     onChange={(e) => setFormMinutes(Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0)))}
-                    className="w-12 h-9 text-center bg-zinc-900 border border-zinc-750 focus:border-zinc-455 focus:bg-zinc-850 hover:border-zinc-600 text-white rounded-lg p-1 outline-none font-mono text-sm font-bold selection:bg-white/20 interactive-control transition-all"
+                    className="w-12 h-9 text-center bg-zinc-900 border border-zinc-755 focus:border-zinc-455 focus:bg-zinc-850 hover:border-zinc-600 text-white rounded-lg p-1 outline-none font-mono text-sm font-bold selection:bg-white/20 interactive-control transition-all focus-visible:ring-2 focus-visible:ring-white"
                   />
                   <span className="text-[8px] text-zinc-400 font-bold mt-1 tracking-wider uppercase">MIN</span>
                 </div>
@@ -279,7 +312,7 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                     value={formSeconds}
                     onKeyDown={handleCountdownSecondsKeyDown}
                     onChange={(e) => setFormSeconds(Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0)))}
-                    className="w-12 h-9 text-center bg-zinc-900 border border-zinc-750 focus:border-zinc-450 focus:bg-zinc-850 hover:border-zinc-600 text-white rounded-lg p-1 outline-none font-mono text-sm font-bold selection:bg-white/20 interactive-control transition-all"
+                    className="w-12 h-9 text-center bg-zinc-900 border border-zinc-750 focus:border-zinc-450 focus:bg-zinc-850 hover:border-zinc-600 text-white rounded-lg p-1 outline-none font-mono text-sm font-bold selection:bg-white/20 interactive-control transition-all focus-visible:ring-2 focus-visible:ring-white"
                   />
                   <span className="text-[8px] text-zinc-400 font-bold mt-1 tracking-wider uppercase">SEC</span>
                 </div>
@@ -297,7 +330,7 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                 placeholder="e.g. Placement OA"
                 value={formLabel}
                 onChange={(e) => setFormLabel(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-750 text-white rounded-lg px-2.5 py-1.5 outline-none text-xs placeholder-zinc-550 font-bold focus:border-zinc-450 focus:bg-zinc-850 transition-all interactive-control"
+                className="w-full bg-zinc-900 border border-zinc-750 text-white rounded-lg px-2.5 py-1.5 outline-none text-xs placeholder-zinc-550 font-bold focus:border-zinc-450 focus:bg-zinc-850 transition-all interactive-control focus-visible:ring-2 focus-visible:ring-white"
               />
             </div>
 
@@ -308,9 +341,10 @@ export const FormPanel: React.FC<FormPanelProps> = ({
               </div>
               <button
                 onClick={() => setFormAlarmEnabled(!formAlarmEnabled)}
-                className={`w-8 h-4.5 rounded-full p-0.5 transition-all focus-visible:ring-1 focus-visible:ring-zinc-450 focus:outline-none interactive-control ${formAlarmEnabled ? 'bg-white' : 'bg-zinc-800 hover:bg-zinc-700 border border-zinc-700'}`}
+                className={`relative w-9 h-5 rounded-full p-0.5 transition-all focus-visible:ring-2 focus-visible:ring-zinc-450 focus:outline-none interactive-control ${formAlarmEnabled ? 'bg-white' : 'bg-zinc-800 hover:bg-zinc-700 border border-zinc-700'}`}
               >
-                <div className={`w-3.5 h-3.5 rounded-full transition-transform ${formAlarmEnabled ? 'translate-x-3.5 bg-zinc-950' : 'translate-x-0 bg-zinc-200'}`} />
+                <span className="absolute -inset-3 cursor-pointer" />
+                <div className={`w-4 h-4 rounded-full transition-transform ${formAlarmEnabled ? 'translate-x-4 bg-zinc-950' : 'translate-x-0 bg-zinc-200'}`} />
               </button>
             </div>
 
@@ -319,18 +353,18 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                 <div>
                   <span className="text-zinc-300 font-bold text-[8.5px] uppercase tracking-wider block mb-1">Presets</span>
                   <div className="grid grid-cols-3 gap-1">
-                    <button onClick={() => applyPreset('30m')} className="py-1 bg-zinc-900 border border-zinc-750 hover:bg-zinc-800 hover:border-zinc-550 hover:text-white rounded-md text-[9px] font-bold transition-all interactive-control focus:outline-none">+30m</button>
-                    <button onClick={() => applyPreset('1h')} className="py-1 bg-zinc-900 border border-zinc-755 hover:bg-zinc-800 hover:border-zinc-555 hover:text-white rounded-md text-[9px] font-bold transition-all interactive-control focus:outline-none">+1h</button>
-                    <button onClick={() => applyPreset('2h')} className="py-1 bg-zinc-900 border border-zinc-750 hover:bg-zinc-800 hover:border-zinc-550 hover:text-white rounded-md text-[9px] font-bold transition-all interactive-control focus:outline-none">+2h</button>
-                    <button onClick={() => applyPreset('tonight')} className="py-1 bg-zinc-900 border border-zinc-750 hover:bg-zinc-800 hover:border-zinc-550 hover:text-white rounded-md text-[9px] font-bold transition-all interactive-control focus:outline-none">Tonight</button>
-                    <button onClick={() => applyPreset('tomorrow')} className="py-1 bg-zinc-900 border border-zinc-750 hover:bg-zinc-800 hover:border-zinc-550 hover:text-white rounded-md text-[9px] font-bold transition-all interactive-control focus:outline-none">Tmrw</button>
-                    <button onClick={() => applyPreset('next-monday')} className="py-1 bg-zinc-900 border border-zinc-750 hover:bg-zinc-800 hover:border-zinc-550 hover:text-white rounded-md text-[9px] font-bold transition-all interactive-control focus:outline-none">Next Mon</button>
+                    <button onClick={() => applyPreset('30m')} className="relative py-2 bg-zinc-900/60 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-650 hover:text-white active:bg-white active:text-zinc-950 rounded-md text-[9px] font-extrabold tracking-wider transition-all interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"><span className="absolute -inset-1 cursor-pointer" />+30m</button>
+                    <button onClick={() => applyPreset('1h')} className="relative py-2 bg-zinc-900/60 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-650 hover:text-white active:bg-white active:text-zinc-950 rounded-md text-[9px] font-extrabold tracking-wider transition-all interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"><span className="absolute -inset-1 cursor-pointer" />+1h</button>
+                    <button onClick={() => applyPreset('2h')} className="relative py-2 bg-zinc-900/60 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-650 hover:text-white active:bg-white active:text-zinc-950 rounded-md text-[9px] font-extrabold tracking-wider transition-all interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"><span className="absolute -inset-1 cursor-pointer" />+2h</button>
+                    <button onClick={() => applyPreset('tonight')} className="relative py-2 bg-zinc-900/60 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-650 hover:text-white active:bg-white active:text-zinc-950 rounded-md text-[9px] font-extrabold tracking-wider transition-all interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"><span className="absolute -inset-1 cursor-pointer" />Tonight</button>
+                    <button onClick={() => applyPreset('tomorrow')} className="relative py-2 bg-zinc-900/60 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-650 hover:text-white active:bg-white active:text-zinc-950 rounded-md text-[9px] font-extrabold tracking-wider transition-all interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"><span className="absolute -inset-1 cursor-pointer" />Tmrw</button>
+                    <button onClick={() => applyPreset('next-monday')} className="relative py-2 bg-zinc-900/60 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:border-zinc-650 hover:text-white active:bg-white active:text-zinc-950 rounded-md text-[9px] font-extrabold tracking-wider transition-all interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"><span className="absolute -inset-1 cursor-pointer" />Next Mon</button>
                   </div>
                 </div>
 
                 <div>
                   <span className="text-zinc-300 font-bold text-[8.5px] uppercase tracking-wider block mb-1">Time</span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 max-w-fit gap-1 mt-1">
                     <input
                       type="number"
                       min="1"
@@ -338,9 +372,9 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                       value={selectedHour}
                       onKeyDown={handleHourKeyDown}
                       onChange={(e) => setSelectedHour(String(Math.max(1, Math.min(12, parseInt(e.target.value, 10) || 12))).padStart(2, '0'))}
-                      className="w-11 h-8 text-center bg-zinc-900 border border-zinc-750 focus:border-zinc-450 focus:bg-zinc-850 hover:border-zinc-600 text-white rounded-lg p-1 outline-none font-mono text-xs font-bold interactive-control transition-all"
+                      className="w-9 h-7 text-center bg-transparent border-0 text-white outline-none font-mono text-xs font-bold selection:bg-white/20"
                     />
-                    <span className="text-zinc-300 font-bold text-xs">:</span>
+                    <span className="text-zinc-500 font-bold text-xs select-none">:</span>
                     <input
                       type="number"
                       min="0"
@@ -348,12 +382,13 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                       value={selectedMinute}
                       onKeyDown={handleMinuteKeyDown}
                       onChange={(e) => setSelectedMinute(String(Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0))).padStart(2, '0'))}
-                      className="w-11 h-8 text-center bg-zinc-900 border border-zinc-750 focus:border-zinc-450 focus:bg-zinc-850 hover:border-zinc-600 text-white rounded-lg p-1 outline-none font-mono text-xs font-bold interactive-control transition-all"
+                      className="w-9 h-7 text-center bg-transparent border-0 text-white outline-none font-mono text-xs font-bold selection:bg-white/20"
                     />
                     <button
                       onClick={() => setSelectedAmPm(prev => prev === 'AM' ? 'PM' : 'AM')}
-                      className="h-8 px-2.5 bg-zinc-900 border border-zinc-750 hover:border-zinc-500 text-zinc-200 hover:text-white rounded-lg text-[9px] font-bold transition-all shrink-0 interactive-control focus:outline-none"
+                      className="relative h-7 px-2.5 bg-zinc-800 hover:bg-zinc-755 text-zinc-200 hover:text-white rounded-md text-[9px] font-extrabold tracking-wider transition-all focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450 shrink-0"
                     >
+                      <span className="absolute -inset-1 cursor-pointer" />
                       {selectedAmPm}
                     </button>
                   </div>
@@ -368,13 +403,13 @@ export const FormPanel: React.FC<FormPanelProps> = ({
                 changePanel(editingTimerId ? 'timer' : 'manager');
                 setEditingTimerId(null);
               }}
-              className="flex-1 border border-zinc-700 hover:border-zinc-550 hover:text-white text-zinc-300 rounded-lg py-2 font-bold text-[9px] uppercase tracking-widest transition-colors interactive-control focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 focus:outline-none"
+              className="flex-1 border border-zinc-700 hover:border-zinc-550 hover:text-white text-zinc-300 rounded-lg py-2.5 font-bold text-[9px] uppercase tracking-widest transition-colors interactive-control focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 focus:outline-none"
             >
               Cancel
             </button>
             <button
               onClick={handleSaveForm}
-              className="flex-1 bg-white hover:bg-zinc-100 active:scale-[0.98] text-zinc-950 rounded-lg py-2 font-bold text-[9px] uppercase tracking-widest transition-all interactive-control focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 focus:outline-none"
+              className="flex-1 bg-white hover:bg-zinc-100 active:scale-[0.98] text-zinc-950 rounded-lg py-2.5 font-bold text-[9px] uppercase tracking-widest transition-all interactive-control focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 focus:outline-none"
             >
               Save
             </button>

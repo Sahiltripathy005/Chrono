@@ -36,7 +36,7 @@ export const TimerPanel: React.FC<TimerPanelProps> = ({
   return (
     <div className="w-full flex flex-col items-center justify-center">
       {/* Optional label above timer */}
-      <div className="flex flex-col items-center justify-center max-w-[90%] mb-1 select-none pointer-events-none">
+      <div className="flex flex-col items-center justify-center max-w-[90%] mb-0.5 select-none pointer-events-none">
         {isActiveTimerExpired ? (
           <span className="font-extrabold tracking-widest text-rose-500 uppercase text-[9.5px] animate-pulse">
             {activeTimer.type === 'deadline' ? 'OVERDUE' : 'EXPIRED'}
@@ -54,7 +54,7 @@ export const TimerPanel: React.FC<TimerPanelProps> = ({
 
       {/* Clock display */}
       <div 
-        className={`clock-display relative select-none py-0.5 flex items-center justify-center ${(isCustomizeMode || isActiveTimerExpired) ? 'cursor-pointer' : 'cursor-default'}`}
+        className={`clock-display relative select-none py-0.5 grid grid-cols-1 grid-rows-1 place-items-center ${(isCustomizeMode || isActiveTimerExpired) ? 'cursor-pointer' : 'cursor-default'}`}
         title={isActiveTimerExpired ? "Click to dismiss alarm" : (isCustomizeMode ? "Click to edit/configure timer" : undefined)}
         onClick={() => {
           if (isActiveTimerExpired) {
@@ -66,7 +66,7 @@ export const TimerPanel: React.FC<TimerPanelProps> = ({
         style={{ height: `${timerFontSize * 1.1}px` }}
       >
         <div 
-          className="countdown-text-element text-white/5 font-normal select-none pointer-events-none whitespace-nowrap"
+          className="col-start-1 row-start-1 countdown-text-element text-white/5 font-normal select-none pointer-events-none whitespace-nowrap"
           style={{ 
             fontFamily: 'DSEG7Classic',
             fontSize: `${timerFontSize}px`,
@@ -77,7 +77,7 @@ export const TimerPanel: React.FC<TimerPanelProps> = ({
         </div>
         
         <div 
-          className={`countdown-text-element absolute top-0 left-0 w-full h-full flex items-center justify-center font-normal opacity-100 whitespace-nowrap ${isActiveTimerExpired ? 'text-rose-500' : 'text-white'}`}
+          className={`col-start-1 row-start-1 countdown-text-element font-normal opacity-100 whitespace-nowrap ${isActiveTimerExpired ? 'text-rose-500' : 'text-white'}`}
           style={{ 
             fontFamily: 'DSEG7Classic',
             fontSize: `${timerFontSize}px`,
@@ -90,40 +90,44 @@ export const TimerPanel: React.FC<TimerPanelProps> = ({
 
       {/* Clear, elegant dismissal and snooze buttons when expired */}
       {isActiveTimerExpired && (
-        <div className="mt-4 flex items-center gap-2 justify-center z-10">
+        <div className="mt-2.5 flex items-center gap-2 justify-center z-10">
           <button
             onClick={(e) => {
               e.stopPropagation();
               acknowledgeTimer(activeTimer.id);
             }}
-            className="px-4 py-2 bg-rose-600/90 hover:bg-rose-500 text-white font-extrabold tracking-widest text-[10px] rounded-lg border border-rose-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] interactive-control shadow-xl focus:outline-none"
+            className="px-4 py-2 bg-rose-600/90 hover:bg-rose-500 text-white font-extrabold tracking-widest text-[10px] rounded-lg border border-rose-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] interactive-control shadow-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
           >
             DISMISS
           </button>
           <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-1">
-            <span className="text-[8.5px] font-bold text-zinc-500 px-2 tracking-wider uppercase">SNOOZE:</span>
+            <span className="text-[8.5px] font-bold text-zinc-550 px-2 tracking-wider uppercase">SNOOZE:</span>
             <button
               onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 60); }}
-              className="px-2.5 py-1 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-800 rounded-md interactive-control"
+              className="relative px-3 py-1.5 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-850 rounded-md interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"
             >
+              <span className="absolute -inset-2 cursor-pointer" />
               1m
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 300); }}
-              className="px-2.5 py-1 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-800 rounded-md interactive-control"
+              className="relative px-3 py-1.5 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-850 rounded-md interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"
             >
+              <span className="absolute -inset-2 cursor-pointer" />
               5m
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 600); }}
-              className="px-2.5 py-1 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-800 rounded-md interactive-control"
+              className="relative px-3 py-1.5 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-850 rounded-md interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"
             >
+              <span className="absolute -inset-2 cursor-pointer" />
               10m
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 1800); }}
-              className="px-2.5 py-1 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-800 rounded-md interactive-control"
+              className="relative px-3 py-1.5 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-850 rounded-md interactive-control focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-450"
             >
+              <span className="absolute -inset-2 cursor-pointer" />
               30m
             </button>
           </div>
@@ -136,24 +140,27 @@ export const TimerPanel: React.FC<TimerPanelProps> = ({
           {activeTimer.type === 'countdown' && (
             <button
               onClick={toggleTimer}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-all interactive-control"
+              className="relative w-10 h-10 flex items-center justify-center rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-all interactive-control focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-450"
               title={isRunning ? "Pause (Space)" : "Start (Space)"}
             >
+              <span className="absolute -inset-1 cursor-pointer" />
               {isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             </button>
           )}
           <button
             onClick={resetTimer}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-all interactive-control"
+            className="relative w-10 h-10 flex items-center justify-center rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-all interactive-control focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-450"
             title="Reset (R)"
           >
+            <span className="absolute -inset-1 cursor-pointer" />
             <RotateCcw className="w-4 h-4" />
           </button>
           <button
             onClick={() => handleOpenEditPanel()}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-all interactive-control"
+            className="relative w-10 h-10 flex items-center justify-center rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/50 transition-all interactive-control focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-450"
             title="Edit Timer"
           >
+            <span className="absolute -inset-1 cursor-pointer" />
             <Settings className="w-4 h-4" />
           </button>
         </div>

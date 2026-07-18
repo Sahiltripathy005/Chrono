@@ -8,6 +8,13 @@
   font-display: swap;
 }
 
+/* Motion System Design Tokens */
+:root {
+  --transition-duration: 200ms;
+  --transition-easing: cubic-bezier(0.16, 1, 0.3, 1);
+  --hover-duration: 200ms;
+}
+
 /* Base style resets for the transparent, borderless utility window */
 html, body {
   margin: 0;
@@ -38,6 +45,44 @@ input[type=number] {
   -moz-appearance: textfield;
 }
 
+/* Centralized Interactive Controls */
+.interactive-control {
+  transition: color var(--hover-duration) var(--transition-easing),
+              background-color var(--hover-duration) var(--transition-easing),
+              border-color var(--hover-duration) var(--transition-easing),
+              opacity var(--hover-duration) var(--transition-easing),
+              transform var(--hover-duration) var(--transition-easing);
+  outline: none;
+}
+
+.interactive-control:active:not(:disabled) {
+  transform: scale(0.96) !important;
+}
+
+.interactive-control:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.4);
+  outline-offset: 1px;
+}
+
+/* Panel transition classes */
+.panel-transition {
+  transition: opacity var(--transition-duration) var(--transition-easing),
+              transform var(--transition-duration) var(--transition-easing);
+  will-change: opacity, transform;
+}
+
+.panel-hidden {
+  opacity: 0 !important;
+  transform: translateX(12px) scale(0.99) !important;
+  pointer-events: none !important;
+}
+
+.panel-visible {
+  opacity: 1 !important;
+  transform: translateX(0) scale(1) !important;
+  pointer-events: auto !important;
+}
+
 @keyframes alarm-bg-glow {
   0% {
     background-color: rgba(9, 9, 11, 0.85);
@@ -59,3 +104,34 @@ input[type=number] {
 .alarm-active {
   animation: alarm-bg-glow 2.4s infinite ease-in-out !important;
 }
+
+/* Custom Premium Scrollbar */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  transition: background 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scrollbar-thin:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38) !important;
+}
+
