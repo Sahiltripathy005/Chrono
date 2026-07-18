@@ -35,6 +35,15 @@ pub struct TimerModel {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub timers: Vec<TimerModel>,
+    #[serde(default)]
+    pub active_timer_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppSettings {
     pub x: i32,
     pub y: i32,
@@ -60,6 +69,10 @@ pub struct AppSettings {
     pub auto_dock: bool,
     #[serde(default = "default_automatic")]
     pub overlay_timer_selection: String,
+    #[serde(default)]
+    pub workspaces: Vec<Workspace>,
+    #[serde(default)]
+    pub active_workspace_id: String,
 }
 
 fn default_true() -> bool {
@@ -100,6 +113,25 @@ impl Default for AppSettings {
             notification_auto_switch: false,
             auto_dock: true,
             overlay_timer_selection: "automatic".to_string(),
+            workspaces: vec![Workspace {
+                id: "default_workspace".to_string(),
+                name: "🎮 Personal".to_string(),
+                timers: vec![TimerModel {
+                    id: "default".to_string(),
+                    label: "Countdown".to_string(),
+                    timer_type: "countdown".to_string(),
+                    duration_secs: 300,
+                    deadline_timestamp: 0,
+                    is_completed: false,
+                    is_cancelled: false,
+                    alarm_enabled: true,
+                    is_running: false,
+                    pinned: false,
+                    completion_timestamp: 0,
+                }],
+                active_timer_id: "default".to_string(),
+            }],
+            active_workspace_id: "default_workspace".to_string(),
         }
     }
 }
@@ -109,6 +141,7 @@ pub struct AppState {
     pub show_seconds_item: CheckMenuItem<tauri::Wry>,
     pub always_on_top_item: CheckMenuItem<tauri::Wry>,
     pub is_config_mode: Mutex<bool>,
+    pub is_alarm_mode: Mutex<bool>,
     pub saved_x: Mutex<i32>,
     pub saved_y: Mutex<i32>,
     pub saved_width: Mutex<f64>,
@@ -124,16 +157,61 @@ fn get_settings_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 fn load_settings(app_handle: &tauri::AppHandle) -> AppSettings {
-    if let Ok(path) = get_settings_path(app_handle) {
+    let mut settings = if let Ok(path) = get_settings_path(app_handle) {
         if path.exists() {
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(settings) = serde_json::from_str::<AppSettings>(&content) {
-                    return settings;
+                if let Ok(s) = serde_json::from_str::<AppSettings>(&content) {
+                    s
+                } else {
+                    AppSettings::default()
                 }
+            } else {
+                AppSettings::default()
+            }
+        } else {
+            AppSettings::default()
+        }
+    } else {
+        AppSettings::default()
+    };
+
+    if settings.workspaces.is_empty() {
+        let default_ws = Workspace {
+            id: "default_workspace".to_string(),
+            name: "🎮 Personal".to_string(),
+            timers: settings.timers.clone(),
+            active_timer_id: settings.active_timer_id.clone(),
+        };
+        settings.workspaces = vec![default_ws];
+        settings.active_workspace_id = "default_workspace".to_string();
+    }
+
+    if !settings.workspaces.iter().any(|w| w.id == settings.active_workspace_id) {
+        settings.active_workspace_id = settings.workspaces[0].id.clone();
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    for t in &mut settings.timers {
+        if t.timer_type == "deadline" && t.deadline_timestamp > now && t.is_completed {
+            t.is_completed = false;
+            t.is_running = true;
+        }
+    }
+
+    for w in &mut settings.workspaces {
+        for t in &mut w.timers {
+            if t.timer_type == "deadline" && t.deadline_timestamp > now && t.is_completed {
+                t.is_completed = false;
+                t.is_running = true;
             }
         }
     }
-    AppSettings::default()
+
+    settings
 }
 
 fn save_settings(app_handle: &tauri::AppHandle, settings: &AppSettings) -> Result<(), String> {
@@ -323,11 +401,97 @@ fn exit_config_mode(window: Window, state: State<'_, AppState>) -> Result<(), St
 }
 
 #[tauri::command]
+fn enter_alarm_mode(window: Window, state: State<'_, AppState>) -> Result<(), String> {
+    let is_config = *state.is_config_mode.lock().unwrap();
+    let is_alarm = *state.is_alarm_mode.lock().unwrap();
+    
+    if !is_config && !is_alarm {
+        let settings = state.settings.lock().unwrap();
+        *state.saved_x.lock().unwrap() = settings.x;
+        *state.saved_y.lock().unwrap() = settings.y;
+        *state.saved_width.lock().unwrap() = settings.width;
+        *state.saved_height.lock().unwrap() = settings.height;
+    }
+    
+    *state.is_alarm_mode.lock().unwrap() = true;
+
+    let monitor = window.current_monitor().ok().flatten().unwrap_or_else(|| {
+        window.primary_monitor().ok().flatten().expect("Must have at least one monitor")
+    });
+
+    let scale_factor = monitor.scale_factor();
+    let m_pos = monitor.position().to_logical::<f64>(scale_factor);
+    let m_size = monitor.size().to_logical::<f64>(scale_factor);
+
+    let width = 340.0;
+    let height = 150.0;
+
+    let left_bound = m_pos.x + 10.0;
+    let top_bound = m_pos.y + 10.0;
+    let right_bound = m_pos.x + m_size.width - 10.0;
+    let bottom_bound = m_pos.y + m_size.height - 50.0;
+
+    let (mut target_x, mut target_y) = {
+        let settings_lock = state.settings.lock().unwrap();
+        (settings_lock.x as f64, settings_lock.y as f64)
+    };
+
+    if target_x + width > right_bound {
+        target_x = right_bound - width;
+    }
+    if target_y + height > bottom_bound {
+        target_y = bottom_bound - height;
+    }
+    if target_x < left_bound {
+        target_x = left_bound;
+    }
+    if target_y < top_bound {
+        target_y = top_bound;
+    }
+
+    let _ = window.set_size(tauri::LogicalSize::new(width, height));
+    let _ = window.set_position(tauri::LogicalPosition::new(target_x, target_y));
+    let _ = window.set_resizable(false);
+
+    Ok(())
+}
+
+#[tauri::command]
+fn exit_alarm_mode(window: Window, state: State<'_, AppState>) -> Result<(), String> {
+    if !*state.is_alarm_mode.lock().unwrap() {
+        return Ok(());
+    }
+    *state.is_alarm_mode.lock().unwrap() = false;
+
+    if !*state.is_config_mode.lock().unwrap() {
+        let x = *state.saved_x.lock().unwrap();
+        let y = *state.saved_y.lock().unwrap();
+        let w = *state.saved_width.lock().unwrap();
+        let h = *state.saved_height.lock().unwrap();
+
+        let _ = window.set_position(tauri::LogicalPosition::new(x as f64, y as f64));
+        let _ = window.set_size(tauri::LogicalSize::new(w, h));
+        let _ = window.set_resizable(true);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn save_settings_data(
     app_handle: tauri::AppHandle,
     state: State<'_, AppState>,
-    settings: AppSettings,
+    mut settings: AppSettings,
 ) -> Result<(), String> {
+    // Sync workspaces with top-level timers/active_timer_id before saving
+    if !settings.workspaces.is_empty() {
+        for w in &mut settings.workspaces {
+            if w.id == settings.active_workspace_id {
+                w.timers = settings.timers.clone();
+                w.active_timer_id = settings.active_timer_id.clone();
+            }
+        }
+    }
+
     // Update autostart registry key on Windows
     #[cfg(target_os = "windows")]
     {
@@ -579,13 +743,13 @@ pub fn run() {
             window.on_window_event(move |event| {
                 match event {
                     tauri::WindowEvent::Moved(pos) => {
-                        let is_config = if let Some(state) = app_handle_clone.try_state::<AppState>() {
-                            *state.is_config_mode.lock().unwrap()
+                        let (is_config, is_alarm) = if let Some(state) = app_handle_clone.try_state::<AppState>() {
+                            (*state.is_config_mode.lock().unwrap(), *state.is_alarm_mode.lock().unwrap())
                         } else {
-                            false
+                            (false, false)
                         };
 
-                        if !is_config {
+                        if !is_config && !is_alarm {
                             if let Ok(scale_factor) = window_clone.scale_factor() {
                                 let logical_pos = pos.to_logical::<f64>(scale_factor);
                                 if let Some(state) = app_handle_clone.try_state::<AppState>() {
@@ -602,13 +766,13 @@ pub fn run() {
                         }
                     }
                     tauri::WindowEvent::Resized(size) => {
-                        let is_config = if let Some(state) = app_handle_clone.try_state::<AppState>() {
-                            *state.is_config_mode.lock().unwrap()
+                        let (is_config, is_alarm) = if let Some(state) = app_handle_clone.try_state::<AppState>() {
+                            (*state.is_config_mode.lock().unwrap(), *state.is_alarm_mode.lock().unwrap())
                         } else {
-                            false
+                            (false, false)
                         };
 
-                        if !is_config {
+                        if !is_config && !is_alarm {
                             if let Ok(scale_factor) = window_clone.scale_factor() {
                                 let logical_size = size.to_logical::<f64>(scale_factor);
                                 if let Some(state) = app_handle_clone.try_state::<AppState>() {
@@ -751,6 +915,7 @@ pub fn run() {
                 show_seconds_item,
                 always_on_top_item,
                 is_config_mode: Mutex::new(false),
+                is_alarm_mode: Mutex::new(false),
                 saved_x: Mutex::new(100),
                 saved_y: Mutex::new(100),
                 saved_width: Mutex::new(320.0),
@@ -765,6 +930,8 @@ pub fn run() {
             save_settings_data,
             enter_config_mode,
             exit_config_mode,
+            enter_alarm_mode,
+            exit_alarm_mode,
             set_always_on_top,
             set_show_seconds,
             set_opacity,

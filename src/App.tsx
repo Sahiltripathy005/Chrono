@@ -51,6 +51,23 @@ const formatTime = (totalSeconds: number, showSeconds: boolean): string => {
   }
 };
 
+const formatListTime = (totalSeconds: number): string => {
+  const days = Math.floor(totalSeconds / 86400);
+  const remainingSecs = totalSeconds % 86400;
+  
+  const hrs = Math.floor(remainingSecs / 3600);
+  const mins = Math.floor((remainingSecs % 3600) / 60);
+  const secs = remainingSecs % 60;
+
+  const pad = (num: number) => String(num).padStart(2, '0');
+
+  if (days > 0) {
+    return `${days}d ${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+  } else {
+    return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+  }
+};
+
 interface TimerModel {
   id: string;
   label: string;
@@ -65,6 +82,13 @@ interface TimerModel {
   completion_timestamp?: number;
 }
 
+interface Workspace {
+  id: string;
+  name: string;
+  timers: TimerModel[];
+  active_timer_id: string;
+}
+
 interface AppSettings {
   show_seconds: boolean;
   always_on_top: boolean;
@@ -77,11 +101,13 @@ interface AppSettings {
   notification_auto_switch: boolean;
   auto_dock: boolean;
   overlay_timer_selection: 'automatic' | 'manual';
+  workspaces: Workspace[];
+  active_workspace_id: string;
 }
 
 export default function App() {
   // Main settings state synced from Rust
-  const [settings, setSettings] = useState<AppSettings>({
+  const [settings, _rawSetSettings] = useState<AppSettings>({
     show_seconds: true,
     always_on_top: true,
     opacity: 0.9,
@@ -105,7 +131,69 @@ export default function App() {
     notification_auto_switch: false,
     auto_dock: true,
     overlay_timer_selection: 'automatic',
+    workspaces: [
+      {
+        id: 'default_workspace',
+        name: '🎮 Personal',
+        timers: [
+          {
+            id: 'default',
+            label: 'Countdown',
+            type: 'countdown',
+            duration_secs: 300,
+            deadline_timestamp: 0,
+            is_completed: false,
+            is_cancelled: false,
+            alarm_enabled: true,
+            is_running: false,
+          }
+        ],
+        active_timer_id: 'default',
+      }
+    ],
+    active_workspace_id: 'default_workspace',
   });
+
+  const setSettings = (
+    updater: AppSettings | ((prev: AppSettings) => AppSettings)
+  ) => {
+    _rawSetSettings(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      
+      const now = Date.now();
+      const cleanTimers = (next.timers || []).map(t => {
+        if (t.type === 'deadline' && t.deadline_timestamp > now && t.is_completed) {
+          return { ...t, is_completed: false, is_running: true };
+        }
+        return t;
+      });
+
+      let workspaces = next.workspaces || [];
+      if (workspaces.length > 0) {
+        workspaces = workspaces.map(w => {
+          const wsTimers = w.id === next.active_workspace_id ? cleanTimers : w.timers || [];
+          const cleanWsTimers = wsTimers.map(t => {
+            if (t.type === 'deadline' && t.deadline_timestamp > now && t.is_completed) {
+              return { ...t, is_completed: false, is_running: true };
+            }
+            return t;
+          });
+          
+          return {
+            ...w,
+            timers: cleanWsTimers,
+            active_timer_id: w.id === next.active_workspace_id ? next.active_timer_id : w.active_timer_id
+          };
+        });
+      }
+
+      return {
+        ...next,
+        timers: cleanTimers,
+        workspaces
+      };
+    });
+  };
 
   // Mode States (Focus Mode is default)
   const [isCustomizeMode, setIsCustomizeModeState] = useState(false);
@@ -146,6 +234,7 @@ export default function App() {
 
   // Timer run states (In-Memory Only)
   const [remainingSeconds, setRemainingSeconds] = useState(300);
+  const [tickTime, setTickTime] = useState(Date.now());
 
   // Refs for state caching and timing
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -169,6 +258,7 @@ export default function App() {
   const [selectedMinute, setSelectedMinute] = useState('00');
   const [selectedAmPm, setSelectedAmPm] = useState<'AM' | 'PM'>('PM');
   const [formAlarmEnabled, setFormAlarmEnabled] = useState(true);
+  const [selectedManagerTimerId, setSelectedManagerTimerId] = useState<string | null>(null);
 
   // Show badge for 2 seconds
   const triggerBadge = (text: string) => {
@@ -180,6 +270,118 @@ export default function App() {
   };
 
 
+
+
+
+  const handleSwitchWorkspace = (workspaceId: string) => {
+    const targetWs = settings.workspaces.find(w => w.id === workspaceId);
+    if (!targetWs) return;
+
+    // Reset countdown remaining refs for all timers in the new workspace
+    targetWs.timers.forEach(t => {
+      if (t.type === 'countdown') {
+        countdownRemainingRef.current[t.id] = t.duration_secs;
+      }
+    });
+
+    setSettings(prev => {
+      const updated = {
+        ...prev,
+        active_workspace_id: workspaceId,
+        timers: targetWs.timers,
+        active_timer_id: targetWs.active_timer_id
+      };
+      invoke('save_settings_data', { settings: updated }).catch(console.error);
+      return updated;
+    });
+  };
+
+  const handleCreateWorkspace = (name: string) => {
+    if (!name.trim()) return;
+    const newId = 'workspace_' + Date.now();
+    const defaultTimerId = 'default_' + Date.now();
+    const newWs: Workspace = {
+      id: newId,
+      name: name.trim(),
+      timers: [
+        {
+          id: defaultTimerId,
+          label: 'Countdown',
+          type: 'countdown',
+          duration_secs: 300,
+          deadline_timestamp: 0,
+          is_completed: false,
+          is_cancelled: false,
+          alarm_enabled: true,
+          is_running: false,
+        }
+      ],
+      active_timer_id: defaultTimerId,
+    };
+
+    setSettings(prev => {
+      const updatedWorkspaces = [...prev.workspaces, newWs];
+      const updated = {
+        ...prev,
+        workspaces: updatedWorkspaces,
+        active_workspace_id: newId,
+        timers: newWs.timers,
+        active_timer_id: defaultTimerId
+      };
+      invoke('save_settings_data', { settings: updated }).catch(console.error);
+      return updated;
+    });
+  };
+
+  const handleRenameWorkspace = (workspaceId: string, name: string) => {
+    if (!name.trim()) return;
+    setSettings(prev => {
+      const updatedWorkspaces = prev.workspaces.map(w => 
+        w.id === workspaceId ? { ...w, name: name.trim() } : w
+      );
+      const updated = {
+        ...prev,
+        workspaces: updatedWorkspaces
+      };
+      invoke('save_settings_data', { settings: updated }).catch(console.error);
+      return updated;
+    });
+  };
+
+  const handleDeleteWorkspace = (workspaceId: string) => {
+    if (settings.workspaces.length <= 1) return;
+
+    setSettings(prev => {
+      const updatedWorkspaces = prev.workspaces.filter(w => w.id !== workspaceId);
+      
+      let nextActiveId = prev.active_workspace_id;
+      let nextTimers = prev.timers;
+      let nextActiveTimerId = prev.active_timer_id;
+
+      if (prev.active_workspace_id === workspaceId) {
+        const fallbackWs = updatedWorkspaces[0];
+        nextActiveId = fallbackWs.id;
+        nextTimers = fallbackWs.timers;
+        nextActiveTimerId = fallbackWs.active_timer_id;
+
+        fallbackWs.timers.forEach(t => {
+          if (t.type === 'countdown') {
+            countdownRemainingRef.current[t.id] = t.duration_secs;
+          }
+        });
+      }
+
+      const updated = {
+        ...prev,
+        workspaces: updatedWorkspaces,
+        active_workspace_id: nextActiveId,
+        timers: nextTimers,
+        active_timer_id: nextActiveTimerId
+      };
+      invoke('save_settings_data', { settings: updated }).catch(console.error);
+      return updated;
+    });
+  };
 
   // Hover docking triggers (Auto Dock disabled)
   const handleMouseEnter = () => {};
@@ -226,6 +428,15 @@ export default function App() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+
+
+  // Keep selectedManagerTimerId synced with active overlay timer
+  useEffect(() => {
+    if (currentPanel === 'manager') {
+      setSelectedManagerTimerId(settings.active_timer_id);
+    }
+  }, [currentPanel, settings.active_timer_id]);
 
   // Load Settings on startup and listen to changes
   useEffect(() => {
@@ -422,6 +633,7 @@ export default function App() {
   // unified ticking loop for all countdowns and deadline timers
   useEffect(() => {
     const interval = setInterval(() => {
+      setTickTime(Date.now());
       let settingsChanged = false;
       let nextTimers = settings.timers.map(t => {
         // Sync ref value for countdown timer if not initialized yet
@@ -745,9 +957,10 @@ export default function App() {
       let updatedTimers = [...prev.timers];
       if (editingTimerId) {
         const existing = prev.timers.find(t => t.id === editingTimerId);
-        newTimer.is_running = existing ? existing.is_running : false;
-        newTimer.is_completed = existing ? existing.is_completed : false;
-        newTimer.is_cancelled = existing ? existing.is_cancelled : false;
+        const wasInactive = existing ? (existing.is_completed || existing.is_cancelled) : false;
+        newTimer.is_running = existing ? (wasInactive ? true : existing.is_running) : true;
+        newTimer.is_completed = false;
+        newTimer.is_cancelled = false;
         newTimer.pinned = existing ? existing.pinned : false;
         updatedTimers = updatedTimers.map(t => t.id === editingTimerId ? newTimer : t);
       } else {
@@ -1097,6 +1310,15 @@ export default function App() {
     !activeTimer.is_cancelled &&
     remainingSeconds <= 0
   );
+
+  // Trigger window resize in alarm state
+  useEffect(() => {
+    if (isActiveTimerExpired) {
+      invoke('enter_alarm_mode').catch(console.error);
+    } else {
+      invoke('exit_alarm_mode').catch(console.error);
+    }
+  }, [isActiveTimerExpired]);
   const displaySecs = activeTimer ? (isOverdue ? Math.abs(remainingSeconds) : Math.max(0, remainingSeconds)) : 0;
   const formatted = formatTime(displaySecs, settings.show_seconds);
   const formattedText = isOverdue ? `+${formatted}` : formatted;
@@ -1182,6 +1404,8 @@ export default function App() {
         className="absolute inset-0 bg-white pointer-events-none transition-opacity duration-200 z-50"
         style={{ opacity: flashOverlayOpacity }}
       />
+      {/* Hidden element to satisfy compiler and force tick updates */}
+      <div style={{ display: 'none' }}>{tickTime}</div>
       {/* Visual Mode Badge */}
       {badgeText && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/10 border border-white/20 text-white text-[9px] font-bold tracking-widest uppercase px-3.5 py-1.5 rounded-full backdrop-blur-md transition-opacity duration-300 pointer-events-none z-50 shadow-xl">
@@ -1302,39 +1526,39 @@ export default function App() {
 
             {/* Clear, elegant dismissal and snooze buttons when expired */}
             {isActiveTimerExpired && activeTimer && (
-              <div className="mt-2.5 flex items-center gap-1.5 justify-center z-10">
+              <div className="mt-4 flex items-center gap-2 justify-center z-10">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     acknowledgeTimer(activeTimer.id);
                   }}
-                  className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-500 text-white font-extrabold tracking-widest text-[8.5px] rounded-md border border-rose-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] interactive-control shadow-lg focus:outline-none"
+                  className="px-4 py-2 bg-rose-600/90 hover:bg-rose-500 text-white font-extrabold tracking-widest text-[10px] rounded-lg border border-rose-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] interactive-control shadow-xl focus:outline-none"
                 >
                   DISMISS
                 </button>
-                <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded p-0.5">
-                  <span className="text-[7.5px] font-bold text-zinc-500 px-1.5 tracking-wider uppercase">SNOOZE:</span>
+                <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-1">
+                  <span className="text-[8.5px] font-bold text-zinc-500 px-2 tracking-wider uppercase">SNOOZE:</span>
                   <button
                     onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 60); }}
-                    className="px-1.5 py-0.5 text-zinc-300 hover:text-white text-[8px] font-bold transition-all hover:bg-zinc-800 rounded interactive-control"
+                    className="px-2.5 py-1 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-800 rounded-md interactive-control"
                   >
                     1m
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 300); }}
-                    className="px-1.5 py-0.5 text-zinc-300 hover:text-white text-[8px] font-bold transition-all hover:bg-zinc-800 rounded interactive-control"
+                    className="px-2.5 py-1 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-800 rounded-md interactive-control"
                   >
                     5m
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 600); }}
-                    className="px-1.5 py-0.5 text-zinc-300 hover:text-white text-[8px] font-bold transition-all hover:bg-zinc-800 rounded interactive-control"
+                    className="px-2.5 py-1 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-800 rounded-md interactive-control"
                   >
                     10m
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); snoozeTimer(activeTimer.id, 1800); }}
-                    className="px-1.5 py-0.5 text-zinc-300 hover:text-white text-[8px] font-bold transition-all hover:bg-zinc-800 rounded interactive-control"
+                    className="px-2.5 py-1 text-zinc-300 hover:text-white text-[10px] font-bold transition-all hover:bg-zinc-800 rounded-md interactive-control"
                   >
                     30m
                   </button>
@@ -1499,6 +1723,70 @@ export default function App() {
               </button>
             </div>
 
+            {/* Workspace Selector & Management Bar */}
+            <div className="flex items-center gap-2 bg-zinc-900/40 border border-zinc-800/85 rounded-lg p-2.5 mb-4 justify-between">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <span className="text-[9px] font-black text-zinc-500 tracking-wider uppercase whitespace-nowrap">Profile:</span>
+                <select
+                  value={settings.active_workspace_id}
+                  onChange={(e) => handleSwitchWorkspace(e.target.value)}
+                  className="bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-bold rounded px-2.5 py-1 focus:outline-none cursor-pointer hover:border-zinc-700 max-w-[150px] truncate"
+                >
+                  {settings.workspaces?.map(w => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Rename current workspace */}
+                <button
+                  onClick={() => {
+                    const currentWs = settings.workspaces.find(w => w.id === settings.active_workspace_id);
+                    if (!currentWs) return;
+                    const newName = prompt("Rename workspace:", currentWs.name);
+                    if (newName !== null && newName.trim()) {
+                      handleRenameWorkspace(currentWs.id, newName);
+                    }
+                  }}
+                  className="p-1 text-zinc-450 hover:text-white rounded hover:bg-zinc-800/80 transition-all interactive-control focus:outline-none"
+                  title="Rename workspace"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Delete current workspace */}
+                {settings.workspaces?.length > 1 && (
+                  <button
+                    onClick={() => {
+                      const currentWs = settings.workspaces.find(w => w.id === settings.active_workspace_id);
+                      if (!currentWs) return;
+                      if (confirm(`Are you sure you want to delete workspace "${currentWs.name}"?`)) {
+                        handleDeleteWorkspace(currentWs.id);
+                      }
+                    }}
+                    className="p-1 text-zinc-450 hover:text-rose-450 rounded hover:bg-zinc-800/80 transition-all interactive-control focus:outline-none"
+                    title="Delete workspace"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Create new workspace button */}
+              <button
+                onClick={() => {
+                  const name = prompt("Enter name for new workspace:");
+                  if (name !== null && name.trim()) {
+                    handleCreateWorkspace(name);
+                  }
+                }}
+                className="text-zinc-300 hover:text-white flex items-center gap-1 text-[9px] font-extrabold tracking-wider uppercase px-2.5 py-1 rounded border border-zinc-800 bg-zinc-950 hover:bg-zinc-900 hover:border-zinc-700 transition-all interactive-control focus:outline-none"
+              >
+                <Plus className="w-2.5 h-2.5" /> NEW PROFILE
+              </button>
+            </div>
+
             <div className="grid grid-cols-[1.3fr_1fr] gap-6 flex-1 min-h-0">
               <div className="overflow-y-auto flex flex-col gap-4 pr-1 scrollbar-thin">
                 {(() => {
@@ -1520,17 +1808,20 @@ export default function App() {
 
                   const renderTimerItem = (t: TimerModel) => {
                     const isActive = t.id === settings.active_timer_id;
+                    const isSelected = settings.overlay_timer_selection === 'manual'
+                      ? t.id === settings.active_timer_id
+                      : t.id === (selectedManagerTimerId ?? settings.active_timer_id);
                     let display = '';
                     let isOverdueTimer = false;
                     
                     if (t.type === 'countdown') {
                       const rem = countdownRemainingRef.current[t.id] ?? t.duration_secs;
-                      display = formatTime(rem, settings.show_seconds);
+                      display = formatListTime(rem);
                       isOverdueTimer = rem <= 0 && !t.is_completed && !t.is_cancelled;
                     } else {
                       const diff = t.deadline_timestamp - Date.now();
                       isOverdueTimer = diff < 0 && !t.is_completed && !t.is_cancelled;
-                      display = (diff < 0 ? '+' : '') + formatTime(Math.floor(Math.abs(diff) / 1000), settings.show_seconds);
+                      display = (diff < 0 ? '+' : '') + formatListTime(Math.floor(Math.abs(diff) / 1000));
                     }
 
                     const statusInfo = getTimerStatusText(t);
@@ -1539,6 +1830,7 @@ export default function App() {
                       <div
                         key={t.id}
                         onClick={() => {
+                          setSelectedManagerTimerId(t.id);
                           if (settings.overlay_timer_selection === 'manual') {
                             setSettings(prev => {
                               const updated = { ...prev, active_timer_id: t.id };
@@ -1547,7 +1839,7 @@ export default function App() {
                             });
                           }
                         }}
-                        className={`flex items-center justify-between p-2.5 rounded-lg border transition-all focus-visible:ring-2 focus-visible:ring-zinc-450 focus:outline-none ${settings.overlay_timer_selection === 'manual' ? 'cursor-pointer' : 'cursor-default'} ${isActive ? 'bg-white/10 border-zinc-300' : 'bg-zinc-900/40 border-zinc-800 hover:bg-zinc-900/60 hover:border-zinc-700'}`}
+                        className={`flex items-center justify-between p-2.5 rounded-lg border transition-all focus-visible:ring-2 focus-visible:ring-zinc-450 focus:outline-none cursor-pointer ${isSelected ? 'bg-white/10 border-zinc-300' : 'bg-zinc-900/40 border-zinc-800 hover:bg-zinc-900/60 hover:border-zinc-700'}`}
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
                           {t.is_completed && (
