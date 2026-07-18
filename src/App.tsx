@@ -18,11 +18,22 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 // Format total seconds into a digital clock string
 const formatTime = (totalSeconds: number, showSeconds: boolean): string => {
-  const hrs = Math.floor(totalSeconds / 3600);
-  const mins = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
+  const days = Math.floor(totalSeconds / 86400);
+  const remainingSecs = totalSeconds % 86400;
+  
+  const hrs = Math.floor(remainingSecs / 3600);
+  const mins = Math.floor((remainingSecs % 3600) / 60);
+  const secs = remainingSecs % 60;
 
   const pad = (num: number) => String(num).padStart(2, '0');
+
+  if (days > 0) {
+    if (showSeconds) {
+      return `${days}d ${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+    } else {
+      return `${days}d ${pad(hrs)}:${pad(mins)}`;
+    }
+  }
 
   if (hrs > 0) {
     if (showSeconds) {
@@ -1122,7 +1133,7 @@ export default function App() {
               style={{ height: `${timerFontSize * 1.1}px` }}
             >
               <div 
-                className="countdown-text-element text-white/5 font-normal select-none pointer-events-none"
+                className="countdown-text-element text-white/5 font-normal select-none pointer-events-none whitespace-nowrap"
                 style={{ 
                   fontFamily: 'DSEG7Classic',
                   fontSize: `${timerFontSize}px`,
@@ -1133,7 +1144,7 @@ export default function App() {
               </div>
               
               <div 
-                className={`countdown-text-element absolute top-0 left-0 w-full h-full flex items-center justify-center font-normal opacity-100 ${isActiveTimerExpired ? 'text-rose-500' : 'text-white'}`}
+                className={`countdown-text-element absolute top-0 left-0 w-full h-full flex items-center justify-center font-normal opacity-100 whitespace-nowrap ${isActiveTimerExpired ? 'text-rose-500' : 'text-white'}`}
                 style={{ 
                   fontFamily: 'DSEG7Classic',
                   fontSize: `${timerFontSize}px`,

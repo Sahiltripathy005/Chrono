@@ -69,10 +69,10 @@ fn default_automatic() -> String {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            x: 100,
-            y: 100,
-            width: 320.0,
-            height: 130.0,
+            x: -9999,
+            y: -9999,
+            width: 250.0,
+            height: 105.0,
             opacity: 0.9,
             always_on_top: true,
             show_seconds: true,
@@ -532,7 +532,7 @@ pub fn run() {
                     let width = settings.width;
                     let screen_w = monitor_size.width as f64 / scale_factor;
                     settings.x = (screen_w - width - 40.0) as i32;
-                    settings.y = 40;
+                    settings.y = 60;
                     let _ = save_settings(&app_handle, &settings);
                 }
             }

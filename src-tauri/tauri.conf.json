@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Chrono",
-        "width": 320,
-        "height": 130,
+        "width": 250,
+        "height": 105,
         "resizable": true,
         "fullscreen": false,
         "transparent": true,
